@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Unit Cell: Face-Centered Cubic</title>
+    <style>
+        html, body {
+            margin: 0;
+            height: 100%;
+        }
+        #theCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+        #description {
+            position: absolute;
+            left: 0;
+            top: 0;
+            z-index: 2;
+            font-size: 20px;
+            color: white;
+
+        }
+    </style>
+    <script type="module">
+        "use strict";
+        import * as THREE from './lib/three.js-master/build/three.module.js';
+        import {OrbitControls} from "./lib/three.js-master/examples/jsm/controls/OrbitControls.js";
+        import {GUI} from "./lib/three.js-master/3rdparty/dat.gui.module.js";
+
+        function main() {
+            const canvas = document.querySelector('#theCanvas');
+            const renderer = new THREE.WebGLRenderer({canvas});
+
+            const fov = 75;
+            const aspect = 2; // the canvas default
+            const near = 0.1;
+            const far = 8;
+            const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+            camera.position.x = 2;
+            camera.position.y = 1;
+            camera.position.z = 3;
+
+            const controls = new OrbitControls(camera, canvas);
+            //controls.enableDamping = true;
+            controls.target.set(0, 0, 0);
+            controls.update();
+
+             const scene = new THREE.Scene();
+            {
+                const color = 0xFFFFFF;
+                const intensity = 1;
+                const ambient = new THREE.AmbientLight(0x404040);
+                scene.add(ambient);
+                const light = new THREE.DirectionalLight(color, intensity);
+                light.position.set(0, 2, 1);
+                scene.add(light);
+            }
+
+            // create parent unit-cell object
+            const unitCell = new THREE.Object3D();
+            scene.add(unitCell);
+
+            // create wireframe cube
+            const edgeLength = 1;
+            const segments = 2;
+            const geometry = new THREE.BoxGeometry(
+                edgeLength, edgeLength, edgeLength,
+                segments, segments, segments);
+            const edges = new THREE.EdgesGeometry(geometry);
+            const wf = new THREE.LineSegments(edges, new THREE.LineBasicMaterial( {
+                color: 0xFFFFFF }));
+            unitCell.add(wf);
+
+            // clipping planes
+        //    renderer.localClippingEnabled = true;
+            const boxClip = [];
+            boxClip.push(new THREE.Plane( new THREE.Vector3(0, -1, 0), 0.5)); // top
+            boxClip.push(new THREE.Plane( new THREE.Vector3(0, 1, 0), 0.5)); // bottom
+            boxClip.push(new THREE.Plane( new THREE.Vector3(-1, 0, 0), 0.5)); // left
+            boxClip.push(new THREE.Plane( new THREE.Vector3(1, 0, 0), 0.5)); // right
+            boxClip.push(new THREE.Plane( new THREE.Vector3(0, 0, -1), 0.5)); // front
+            boxClip.push(new THREE.Plane( new THREE.Vector3(0, 0, 1), 0.5)); // back
+            unitCell.add(boxClip);
+
+            // settings for outside (corner) atoms
+            let atomRadius1 = 0.25;
+            let atomColor1 = 0xcc99FF;
+            const widthSegments = 15;
+            const heightSegments = 15;
+            const sphereGeometry1 = new THREE.SphereGeometry(atomRadius1, widthSegments, heightSegments);
+            const material1 = new THREE.MeshPhongMaterial({
+                color: atomColor1,
+                side: THREE.DoubleSide,
+                clippingPlanes: boxClip
+            });
+            const atomMesh1 = new THREE.Mesh(sphereGeometry1, material1);
+
+            const atoms1 = [];
+
+            function addAtom(x, y, z, arr, mesh){
+                let atom = mesh.clone();
+                unitCell.add(atom);
+                atom.position.x = x;
+                atom.position.y = y;
+                atom.position.z = z;
+                arr.push(atom);
+                return atom;
+            }
+
+            for (let x = -0.5; x <= 0.5; x++) {
+                for (let y = -0.5; y <= 0.5; y++) {
+                    for (let z = -0.5; z <= 0.5; z++) {
+                        addAtom(x, y, z, atoms1, atomMesh1);
+                    }
+                }
+            }
+
+            // settings for face-centered atoms
+            let atomRadius2 = 0.25;
+            let atomColor2 = 0x99FFcc;
+            const sphereGeometry2 = new THREE.SphereGeometry(atomRadius2, widthSegments, heightSegments);
+            const material2 = new THREE.MeshPhongMaterial({
+                color: atomColor2,
+                side: THREE.DoubleSide,
+                clippingPlanes: boxClip
+            });
+            const atomMesh2 = new THREE.Mesh(sphereGeometry2, material2);
+            const atoms2 = [];
+            addAtom(0.5, 0, 0, atoms2, atomMesh2);
+            addAtom(-0.5, 0, 0, atoms2, atomMesh2);
+            addAtom(0, 0.5, 0, atoms2, atomMesh2);
+            addAtom(0, -0.5, 0, atoms2, atomMesh2);
+            addAtom(0, 0, 0.5, atoms2, atomMesh2);
+            addAtom(0, 0, -0.5, atoms2, atomMesh2);
+
+
+            // slider controls
+            const gui = new GUI();
+            class ColorGUIHelper {
+                constructor(obj, prop) {
+                    this.obj = obj;
+                    this.prop = prop;
+                }
+                get value() {
+                    return `#${this.obj[this.prop].getHexString()}`;
+                }
+                set value(hexStr) {
+                    this.obj[this.prop].set(hexStr);
+                }
+            }
+
+            const guiAtoms1 = gui.addFolder("Corner Atoms");
+            guiAtoms1.addColor(new ColorGUIHelper(material1, 'color'), 'value')
+                .name('color')
+                .onChange(requestRenderIfNotRequested);
+            const scaleSlider1 = guiAtoms1.add(atoms1[0].scale, 'x', 0.1, 2.0, 0.01)
+                .name('scale');
+            scaleSlider1.onChange(function(value) {
+                for (let a of atoms1) {
+                    // can't change the radius for some stupid reason
+                    // so have to scale it in 3-directions instead
+                    // a scale value of 1 = the initial radius of 0.25
+                    // a scale value of 2 = radius 0.5, or about half the edge length which is 1
+                    a.scale.x = value;
+                    a.scale.y = value;
+                    a.scale.z = value;
+                }
+                requestRenderIfNotRequested();
+            });
+            guiAtoms1.open();
+
+            const guiAtoms2 = gui.addFolder("Face-Centered Atoms");
+            guiAtoms2.addColor(new ColorGUIHelper(material2, 'color'), 'value')
+                .name('color')
+                .onChange(requestRenderIfNotRequested);
+            const scaleSlider2 = guiAtoms2.add(atoms2[0].scale, 'x', 0.1, 2.0, 0.01)
+                .name('scale');
+            scaleSlider2.onChange(function(value) {
+                for (let a of atoms2) {
+                    a.scale.x = value;
+                    a.scale.y = value;
+                    a.scale.z = value;
+                }
+                requestRenderIfNotRequested();
+            });
+            guiAtoms2.open();
+
+            const guiCell = gui.addFolder("Unit Cell");
+            const toggleClip = {
+                get 'Enabled'() { return renderer.localClippingEnabled; },
+                set 'Enabled'(v) { renderer.localClippingEnabled = v; }
+            };
+            guiCell.add(toggleClip, 'Enabled')
+                .name('clip boundaries')
+                .onChange(requestRenderIfNotRequested);
+            guiCell.open();
+
+
+            // rendering functions
+            function resizeRendererToDisplaySize(renderer) {
+                const canvas = renderer.domElement;
+                const width = canvas.clientWidth;
+                const height = canvas.clientHeight;
+                const needResize = canvas.width !== width || canvas.height !== height;
+                if (needResize) {
+                    renderer.setSize(width, height, false);
+                }
+                return needResize;
+            }
+
+            let renderRequested = false;
+
+            function render() {
+                renderRequested = undefined;
+                if (resizeRendererToDisplaySize(renderer)) {
+                    const canvas = renderer.domElement;
+                    camera.aspect = canvas.clientWidth / canvas.clientHeight;
+                    camera.updateProjectionMatrix();
+                }
+
+                controls.update();
+                renderer.render(scene, camera);
+            }
+
+            render();
+
+            function requestRenderIfNotRequested() {
+                if (!renderRequested) {
+                    renderRequested = true;
+                    requestAnimationFrame(render);
+                }
+            }
+
+            controls.addEventListener('change', requestRenderIfNotRequested);
+            window.addEventListener('resize', requestRenderIfNotRequested);
+
+            /*
+            window.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                window.focus();
+            });
+            window.addEventListener('keydown', (e) => {
+                e.preventDefault();
+            });
+             */
+        }
+
+        main();
+    </script>
+</head>
+<body>
+    <canvas id="theCanvas"></canvas>
+    <div id="description">Face-Centered Cubic Unit Cell</div>
+
+</body>
+</html>

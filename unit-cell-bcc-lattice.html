@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Unit Cell: Body-Centered Cubic Lattice</title>
+    <style>
+        html, body {
+            margin: 0;
+            height: 100%;
+        }
+        #theCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+        #description {
+            position: absolute;
+            left: 5px;
+            top: 5px;
+            z-index: 2;
+            font-size: 20px;
+            color: white;
+
+        }
+        #measurements {
+            position: absolute;
+            left: 5px;
+            top: 35px;
+            z-index: 2;
+            font-size: 14px;
+            color: white;
+        }
+    </style>
+    <script type="module">
+        "use strict";
+        import * as THREE from './lib/three.js-master/build/three.module.js';
+        import {OrbitControls} from "./lib/three.js-master/examples/jsm/controls/OrbitControls.js";
+        import {GUI} from "./lib/three.js-master/3rdparty/dat.gui.module.js";
+
+        /*
+         * Ideas & to-do
+         * camera layers:
+         *      layer 1 = unit cell (centered on origin)
+         *                  this will require different calculation of lattice grid coords
+         *
+         *      layer 2 = extended lattice structure with transparency slider
+         *
+         * drop-down menu for selecting different unit unit cells (simple, bcc, fcc)
+         *      and possibly also a 4th one for showing all 3 for comparision?
+         *
+         * size sliders will dynamically re-calculate scale of the other atom as well
+         *      so that all atoms are still touching
+         *
+         * size slider for unit cell edges also? (or incorporate into atom slider)
+         *
+         * function for displaying and scaling in units of picometers
+         *
+         * info box that updates with measurements
+         *
+         * toggle checkbox for rotation and/or camera rotation
+         */
+
+        function main() {
+            const canvas = document.querySelector('#theCanvas');
+            const renderer = new THREE.WebGLRenderer({canvas});
+
+            // camera setup
+            const cameraParams = {
+                fov: 75,
+                aspect: 2,
+                near: 0.1,
+                far: 12,
+                position: {
+                    x: 6,
+                    y: 4,
+                    z: 5
+                }
+            };
+            const camera = new THREE.PerspectiveCamera(
+                cameraParams.fov,
+                cameraParams.aspect,
+                cameraParams.near,
+                cameraParams.far
+            );
+            camera.position.set(
+                cameraParams.position.x,
+                cameraParams.position.y,
+                cameraParams.position.z
+            );
+            const controls = new OrbitControls(camera, canvas);
+            //controls.enableDamping = true;
+            controls.target.set(0, 0, 0);
+            controls.update();
+
+            // lighting setup
+            const lightParams ={
+                ambient: {
+                    color: 0x404040
+                },
+                directional: {
+                    color: 0xffffff,
+                    intensity: 1,
+                    position: {
+                        x: 0,
+                        y: 2,
+                        z: 1
+                    }
+                }
+            };
+            const scene = new THREE.Scene();
+            const ambient = new THREE.AmbientLight(
+                lightParams.ambient.color
+            );
+            scene.add(ambient);
+            const light = new THREE.DirectionalLight(
+                lightParams.directional.color,
+                lightParams.directional.intensity
+            );
+            light.position.set(
+                lightParams.directional.position.x,
+                lightParams.directional.position.y,
+                lightParams.directional.position.z
+            );
+            scene.add(light);
+
+
+            // create parent lattice object
+            const lattice = new THREE.Object3D();
+            scene.add(lattice);
+            //    renderer.localClippingEnabled = true;
+            const boxClip = [];
+
+            // create wireframe grid
+            const grid = new THREE.Object3D();
+            lattice.add(grid);
+
+            const gridParams = {
+                gridTile: {
+                    l: 4,
+                    w: 4,
+                    h: 4
+                },
+                edgeLength: 1,
+                segments: 2,
+                color: 0xffffff,
+                side: THREE.DoubleSide,
+                clippingPlanes: boxClip
+            };
+            // create wireframe cubes to add to grid
+            const gridGeometry = new THREE.BoxGeometry(
+                gridParams.edgeLength, gridParams.edgeLength, gridParams.edgeLength,
+                gridParams.segments, gridParams.segments, gridParams.segments);
+            const edges = new THREE.EdgesGeometry(gridGeometry);
+
+            // this is so that the for loop below starts in the negatives
+            // in order to center the entire grid roughly at (0,0)
+            // if grid {l, w, h} all = 4 then the lower front left corner of each cell
+            // will have coordinates [-2, -1, 0, 1] in all directions
+            const gridCoords = {
+                x: {
+                    start: -(Math.floor(gridParams.gridTile.w / 2)),
+                    end: Math.floor(gridParams.gridTile.w / 2)
+                },
+                y: {
+                    start: -(Math.floor(gridParams.gridTile.h / 2)),
+                    end: Math.floor(gridParams.gridTile.h / 2)
+                },
+                z: {
+                    start: -(Math.floor(gridParams.gridTile.l / 2)),
+                    end: Math.floor(gridParams.gridTile.l / 2)
+                }
+            };
+
+            for(let i=gridCoords.x.start; i<gridCoords.x.end; i++){
+                for(let j=gridCoords.y.start; j<gridCoords.y.end; j++){
+                    for(let k=gridCoords.z.start; k<gridCoords.z.end; k++){
+                        const wf = new THREE.LineSegments(edges, new THREE.LineBasicMaterial( {
+                            color: gridParams.color, side: gridParams.side,
+                            clippingPlanes: gridParams.clippingPlanes }));
+                        // position sets the center of the cube
+                        // we want cube edges & vertices to align to coordinate grid
+                        // so we add 0.5 to shift it over in each direction
+                        wf.position.x = i+0.5;
+                        wf.position.y = j+0.5;
+                        wf.position.z = k+0.5;
+                        grid.add(wf);
+                    }
+                }
+            }
+
+            // clipping planes
+
+            /* the code below is to clip everything but the very top front unit cell
+            /* however, this doesn't work well with the camera setting
+            /* there's probably also a cleaner way to do this
+            const cx = -(gridCoords.x.start);
+            const cy = -(gridCoords.y.start);
+            const cz = -(gridCoords.z.start);
+
+            const clipPlaneX = new THREE.Plane( new THREE.Vector3(-1, 0, 0), cx);
+            boxClip.push(clipPlaneX);
+            const clipPlaneA = clipPlaneX.clone().negate().translate(new THREE.Vector3(-1, 0, 0));
+            boxClip.push(clipPlaneA);
+
+            const clipPlaneY = new THREE.Plane( new THREE.Vector3(0, -1, 0), cy);
+            boxClip.push(clipPlaneY);
+            const clipPlaneB = clipPlaneY.clone().negate().translate(new THREE.Vector3(0, -1, 0));
+            boxClip.push(clipPlaneB);
+
+            const clipPlaneZ = new THREE.Plane( new THREE.Vector3(0, 0, -1), cz);
+            boxClip.push(clipPlaneZ);
+            const clipPlaneC = clipPlaneZ.clone().negate().translate(new THREE.Vector3(0, 0, -1));
+            boxClip.push(clipPlaneC);
+            */
+
+            /* this code clips around the origin,
+            /* meaning the camera works more smoothly
+            */
+            boxClip.push(new THREE.Plane( new THREE.Vector3(0, -1, 0), 1));
+            boxClip.push(new THREE.Plane( new THREE.Vector3(0, 1, 0), 1));
+            boxClip.push(new THREE.Plane( new THREE.Vector3(-1, 0, 0), 1));
+            boxClip.push(new THREE.Plane( new THREE.Vector3(1, 0, 0), 1));
+            boxClip.push(new THREE.Plane( new THREE.Vector3(0, 0, -1), 1));
+            boxClip.push(new THREE.Plane( new THREE.Vector3(0, 0, 1), 1));
+
+
+            // setup sphere geometry for all atoms
+            const sphereParams = {
+                radius: Math.sqrt(3/16),     // for body-centered-cubic
+                widthSegments: 15,
+                heightSegments: 15
+            };
+
+            // create corner atoms
+            const cornerAtoms = new THREE.Group();
+            lattice.add(cornerAtoms);
+            const cornerAtomsParams = {
+                color: 0xccff99,
+                side: THREE.DoubleSide,
+                clippingPlanes: boxClip
+            };
+            const cornerAtomsGeometry = new THREE.SphereGeometry(
+                sphereParams.radius,
+                sphereParams.widthSegments,
+                sphereParams.heightSegments
+            );
+            const cornerAtomsMaterial = new THREE.MeshPhongMaterial({
+                color: cornerAtomsParams.color,
+                side: cornerAtomsParams.side,
+                clippingPlanes: cornerAtomsParams.clippingPlanes
+            });
+            // need <= grid end here otherwise it stops short
+            for(let i=gridCoords.x.start; i<=gridCoords.x.end; i++){
+                for(let j=gridCoords.y.start; j<=gridCoords.y.end; j++){
+                    for(let k=gridCoords.z.start; k<=gridCoords.z.end; k++){
+                        const atom = new THREE.Mesh(cornerAtomsGeometry, cornerAtomsMaterial);
+                        // center of corner atoms should align with grid coordinates (unit cell vertices)
+                        atom.position.x = i;
+                        atom.position.y = j;
+                        atom.position.z = k;
+                        cornerAtoms.add(atom);
+                    }
+                }
+            }
+
+            // create body-centered atoms
+            const centerAtoms = new THREE.Group();
+            lattice.add(centerAtoms);
+            const centerAtomsParams = {
+                color: 0x99ccff,
+                side: THREE.DoubleSide,
+                clippingPlanes: boxClip
+            };
+            const centerAtomsGeometry = new THREE.SphereGeometry(
+                sphereParams.radius,
+                sphereParams.widthSegments,
+                sphereParams.heightSegments
+            );
+            const centerAtomsMaterial = new THREE.MeshPhongMaterial({
+                color: centerAtomsParams.color,
+                side: centerAtomsParams.side,
+                clippingPlanes: centerAtomsParams.clippingPlanes
+            });
+            for(let i=gridCoords.x.start; i<gridCoords.x.end; i++){
+                for(let j=gridCoords.y.start; j<gridCoords.y.end; j++){
+                    for(let k=gridCoords.z.start; k<gridCoords.z.end; k++){
+                        const atom = new THREE.Mesh(centerAtomsGeometry, centerAtomsMaterial);
+                        // position sets the center of the sphere
+                        // so we add 0.5 to shift it into cell centers
+                        atom.position.x = i+0.5;
+                        atom.position.y = j+0.5;
+                        atom.position.z = k+0.5;
+                        centerAtoms.add(atom);
+                    }
+                }
+            }
+
+
+            // slider controls
+            const gui = new GUI();
+            const guiParams = {
+                cornerAtoms: {
+                    groupObj: cornerAtoms,
+                    material: cornerAtomsMaterial,
+                    color: `#${cornerAtomsMaterial.color.getHexString()}`,
+                    geometry: cornerAtomsGeometry,
+                    scale: 1.0
+                },
+                centerAtoms: {
+                    groupObj: centerAtoms,
+                    material: centerAtomsMaterial,
+                    color: `#${centerAtomsMaterial.color.getHexString()}`,
+                    geometry: cornerAtomsGeometry,
+                    scale: 1.0
+                }
+            };
+            class ColorGUIHelper {
+                constructor(param) {
+                    this.obj = param;             // ex:  guiParams['cornerAtoms']
+                    this.group = param.groupObj;   //  groupObj: cornerAtoms
+                    this.mat = param.material;           // cornerAtomsMaterial
+                    this.col = param.color;       //   originally is cornerAtomsMaterial.color
+                }
+                get value() {
+                    // return `#${this.col.getHexString()}`;
+                    return this.col;
+                }
+                set value(hexStr) {
+                    this.col = hexStr;
+                    this.mat.color.set(hexStr);
+                }
+            }
+            class ScaleGUIHelper {
+                constructor(param) {
+                    this.obj = param;             // ex:  guiParams['cornerAtoms']
+                    this.group = param.groupObj;   //  groupObj: cornerAtoms
+                    this.geom = param.geometry;         // cornerAtomsGeometry
+                    this.s = param.scale;      // scale
+                }
+                get value() {
+                    return this.s.valueOf();
+                }
+                set value(val) {
+                    this.s = val;
+                    const arr = this.group.children;
+                    for (let a of arr) {
+                        a.scale.x = val;
+                        a.scale.y = val;
+                        a.scale.z = val;
+                    }
+                    // why doesn't this work
+                    // this.geom.scale(val, val, val);
+                }
+            }
+
+            const guiCornerAtoms = gui.addFolder("Corner Atoms");
+            guiCornerAtoms.addColor(new ColorGUIHelper(guiParams.cornerAtoms), 'value')
+                .name('Color')
+                .onChange(requestRenderIfNotRequested);
+            guiCornerAtoms.add(new ScaleGUIHelper(guiParams.cornerAtoms), 'value')
+                .name('Scale')
+                .min(0.1)
+                .max(2.0)
+                .step(0.01)
+                .onChange(requestRenderIfNotRequested);
+            guiCornerAtoms.open();
+
+            const guiCenterAtoms = gui.addFolder("Center Atoms");
+            guiCenterAtoms.addColor(new ColorGUIHelper(guiParams.centerAtoms), 'value')
+                .name('Color')
+                .onChange(requestRenderIfNotRequested);
+            guiCenterAtoms.add(new ScaleGUIHelper(guiParams.centerAtoms), 'value')
+                .name('Scale')
+                .min(0.1)
+                .max(2.0)
+                .step(0.01)
+                .onChange(requestRenderIfNotRequested);
+            guiCenterAtoms.open();
+
+            const guiLattice= gui.addFolder("Lattice");
+            const toggleClip = {
+                get 'Enabled'() { return renderer.localClippingEnabled; },
+                set 'Enabled'(v) { renderer.localClippingEnabled = v; }
+            };
+            guiLattice.add(toggleClip, 'Enabled')
+                .name('Unit Cell 2x2')
+                .onChange(requestRenderIfNotRequested);
+            guiLattice.open();
+
+
+
+
+
+            // rendering functions
+            function resizeRendererToDisplaySize(renderer) {
+                const canvas = renderer.domElement;
+                const width = canvas.clientWidth;
+                const height = canvas.clientHeight;
+                const needResize = canvas.width !== width || canvas.height !== height;
+                if (needResize) {
+                    renderer.setSize(width, height, false);
+                }
+                return needResize;
+            }
+
+            let renderRequested = false;
+
+            function render() {
+                renderRequested = undefined;
+                if (resizeRendererToDisplaySize(renderer)) {
+                    const canvas = renderer.domElement;
+                    camera.aspect = canvas.clientWidth / canvas.clientHeight;
+                    camera.updateProjectionMatrix();
+                }
+
+                controls.update();
+                renderer.render(scene, camera);
+            }
+
+            render();
+
+            function requestRenderIfNotRequested() {
+                if (!renderRequested) {
+                    renderRequested = true;
+                    requestAnimationFrame(render);
+                }
+            }
+
+            controls.addEventListener('change', requestRenderIfNotRequested);
+            window.addEventListener('resize', requestRenderIfNotRequested);
+
+            /*
+            window.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                window.focus();
+            });
+            window.addEventListener('keydown', (e) => {
+                e.preventDefault();
+            });
+             */
+        }
+
+        main();
+    </script>
+</head>
+<body>
+    <canvas id="theCanvas"></canvas>
+    <div id="description">Lattice Structure of Body-Centered Cubic Unit Cells</div>
+    <div id="measurements"></div>
+
+</body>
+</html>
